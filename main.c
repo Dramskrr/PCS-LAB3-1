@@ -1,12 +1,14 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <omp.h>
+#include <mpi.h>
 #include <string.h>
 #include <time.h>
+#include <stdbool.h>
 
 const int DEFAULT_ARRAY_SIZE = 1000000;
 const int DEFAULT_RUNS = 100;
+const int DEFAULT_CORES = 1;
 
 int* CreateArray(const int SIZE) {
     int* int_array = (int*) malloc(sizeof(int) * SIZE);
@@ -36,6 +38,20 @@ int GetEnvArraySize() {
     return array_size_int;
 }
 
+int GetEnvCores() {
+    char* cores_char = getenv("CORES");
+    int cores_int = DEFAULT_CORES;
+    if (cores_char != NULL) {
+        cores_int = atoi(cores_char);
+    } else {
+        printf(
+            "Переменная среды CORES не получена, "
+            "используем значение по умолчанию: %d \n", DEFAULT_CORES
+        );
+    }
+    return cores_int;
+}
+
 int GetEnvRuns() {
     char* runs_char = getenv("RUNS");
     int runs_int = DEFAULT_RUNS;
@@ -50,33 +66,57 @@ int GetEnvRuns() {
     return runs_int;
 }
 
-int64_t SumElementsOfArray(const int* array, const int SIZE) {
-    int64_t result = 0;
-    for (int i = 0; i < SIZE; i++) {
-        result += array[0];
+int64_t SumElementsOfArray(const int* array, const int SIZE,
+                            const bool PARALLEL_MDOE) {
+    if (!PARALLEL_MDOE) {
+        int64_t result = 0;
+        for (int i = 0; i < SIZE; i++) {
+            result += array[0];
+        }
+        return result;
     }
-    return result;
+
+
 }
 
-int main() {
+int main(int argc, char** argv) {
     srand(time(NULL));
     const int ARRAY_SIZE = GetEnvArraySize();
     const int RUNS = GetEnvRuns();
+    const int CORES = GetEnvCores();
+    bool parallel_mode = false; 
+
+    if (CORES > 1) {
+        parallel_mode = true;
+        printf("Программа отработает в параллельном "
+                "режиме (используемых ядер > 1)\n"
+        );
+    } else {
+        printf("Программа отработает в последовательном "
+                "режиме (используемых ядер = 1)\n"
+        );
+    }
 
     printf("Размер массива: %d \n", ARRAY_SIZE);
     printf("Повторений: %d \n", RUNS);
+    printf("Используемые ядра: %d \n", CORES);
     
     // Таймер
     struct timespec begin, end;
     double exec_time = 0.0;
     double mean_exec_time = 0.0;
 
+    if (parallel_mode) {
+        MPI_Init(&argc, &argv);
+        MPI_Finalize();
+    }
+
     printf("Рассчёты начаты...\n");
     for (int i = 0; i < RUNS; i++) {
         clock_gettime(CLOCK_REALTIME, &begin);
         int* int_array = CreateArray(ARRAY_SIZE);
         //PrintArray(int_array, ARRAY_SIZE);
-        int64_t sum_result = SumElementsOfArray(int_array, ARRAY_SIZE);
+        int64_t sum_result = SumElementsOfArray(int_array, ARRAY_SIZE, parallel_mode);
         //printf("Результат: %ld \n", sum_result);
         free(int_array);
         clock_gettime(CLOCK_REALTIME, &end);
