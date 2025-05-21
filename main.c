@@ -1,112 +1,90 @@
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <omp.h>
+#include <string.h>
 #include <time.h>
 
-typedef enum { false, true } bool;
+const int DEFAULT_ARRAY_SIZE = 1000000;
+const int DEFAULT_RUNS = 100;
 
-const int ARRAY_SIZE = 2000000; 
+int* CreateArray(const int SIZE) {
+    int* int_array = (int*) malloc(sizeof(int) * SIZE);
+    for (int i = 0; i < SIZE; i++) {
+        int_array[i] = rand();
+    }
+    return int_array;
+}
 
-void PrintArray(int* array) {
-    for (int i = 0; i < ARRAY_SIZE; ++i) {
-        printf("%d ", array[i]);
+void PrintArray(const int* array, const int SIZE) {
+    for (int i = 0; i < SIZE; i++) {
+        printf("%d ",array[i]);
     }
 }
 
-unsigned long int ComputeSum(bool threading, int thread_amount, int* array) {
-    unsigned long int sum = 0;
-
-    if (threading) { // Параллельно
-        #pragma omp parallel num_threads(thread_amount)
-        {   
-            #pragma omp master
-            {
-                printf("Количество потоков: %d \n", omp_get_num_threads());
-            }
-
-            #pragma omp for reduction (+:sum)
-            for (int i = 0; i < ARRAY_SIZE; ++i) {
-                sum += array[i];
-            }
-        }
-    } else { // Последовательно
-        for (int i = 0; i < ARRAY_SIZE; ++i) {
-            sum += array[i];
-        }
+int GetEnvArraySize() {
+    char* array_size_char = getenv("ARRAY_SIZE");
+    int array_size_int = DEFAULT_ARRAY_SIZE;
+    if (array_size_char != NULL) {
+        array_size_int = atoi(array_size_char);
+    } else {
+        printf(
+            "Переменная среды ARRAY_SIZE не получена, "
+            "используем значение по умолчанию: %d \n", DEFAULT_ARRAY_SIZE
+        );
     }
-
-    return sum;
+    return array_size_int;
 }
 
-void Task1(double* mean_time_sequential, double* mean_time_2_threads,
-            double* mean_time_4_threads, double* mean_time_8_threads) {
-    struct timespec begin, end;
-    unsigned long int sum = 0;
-    double taken_time = 0.0;
-
-    printf("Количетсво элементов в массиве: %d \n", ARRAY_SIZE);
-
-    srand(time(0));
-    int array[ARRAY_SIZE]; // Создаём и заполняем массив
-    for (int i = 0; i < ARRAY_SIZE; ++i) {
-        array[i] = rand() % 100;
+int GetEnvRuns() {
+    char* runs_char = getenv("RUNS");
+    int runs_int = DEFAULT_RUNS;
+    if (runs_char != NULL) {
+        runs_int = atoi(runs_char);
+    } else {
+        printf(
+            "Переменная среды RUNS не получена, "
+            "используем значение по умолчанию: %d \n", DEFAULT_RUNS
+        );
     }
+    return runs_int;
+}
 
-    //PrintArray(array); //для увеселения души
-
-    // Последовательно
-    clock_gettime(CLOCK_REALTIME, &begin);
-    sum = ComputeSum(false, 0, array);
-    clock_gettime(CLOCK_REALTIME, &end);
-    taken_time = (double)(end.tv_sec - begin.tv_sec) + (double)(end.tv_nsec - begin.tv_nsec)/1e9;
-    printf("Последовательно: занятое время: %f секунд, результат: %.0f \n", taken_time, (double)sum);
-    *mean_time_sequential += taken_time;
-
-    // 2 потока
-    clock_gettime(CLOCK_REALTIME, &begin);
-    sum = ComputeSum(true, 2, array);
-    clock_gettime(CLOCK_REALTIME, &end);
-    taken_time = (double)(end.tv_sec - begin.tv_sec) + (double)(end.tv_nsec - begin.tv_nsec)/1e9;
-    printf("Параллельно 2 потока: занятое время: %f секунд, результат: %.0f \n", taken_time, (double)sum);
-    *mean_time_2_threads += taken_time;
-
-    // 4 потока
-    clock_gettime(CLOCK_REALTIME, &begin);
-    sum = ComputeSum(true, 4, array);
-    clock_gettime(CLOCK_REALTIME, &end);
-    taken_time = (double)(end.tv_sec - begin.tv_sec) + (double)(end.tv_nsec - begin.tv_nsec)/1e9;
-    printf("Параллельно 4 потока: занятое время: %f секунд, результат: %.0f \n", taken_time, (double)sum);
-    *mean_time_4_threads += taken_time;
-
-    // 8 потоков
-    clock_gettime(CLOCK_REALTIME, &begin);
-    sum = ComputeSum(true, 8, array);
-    clock_gettime(CLOCK_REALTIME, &end);
-    taken_time = (double)(end.tv_sec - begin.tv_sec) + (double)(end.tv_nsec - begin.tv_nsec)/1e9;
-    printf("Параллельно 8 потоков: занятое время: %f секунд, результат: %.0f \n\n", taken_time, (double)sum);
-    *mean_time_8_threads += taken_time;
-
+int64_t SumElementsOfArray(const int* array, const int SIZE) {
+    int64_t result = 0;
+    for (int i = 0; i < SIZE; i++) {
+        result += array[0];
+    }
+    return result;
 }
 
 int main() {
-    double mean_time_sequential = 0.0;
-    double mean_time_2_threads = 0.0;
-    double mean_time_4_threads = 0.0;
-    double mean_time_8_threads = 0.0;
-    int runs = 1000;
+    srand(time(NULL));
+    const int ARRAY_SIZE = GetEnvArraySize();
+    const int RUNS = GetEnvRuns();
+
+    printf("Размер массива: %d \n", ARRAY_SIZE);
+    printf("Повторений: %d \n", RUNS);
     
-    for (int i = 0; i < runs; ++i) {
-        
-        Task1(&mean_time_sequential, &mean_time_2_threads, 
-            &mean_time_4_threads, &mean_time_8_threads);
+    // Таймер
+    struct timespec begin, end;
+    double exec_time = 0.0;
+    double mean_exec_time = 0.0;
+
+    printf("Рассчёты начаты...\n");
+    for (int i = 0; i < RUNS; i++) {
+        clock_gettime(CLOCK_REALTIME, &begin);
+        int* int_array = CreateArray(ARRAY_SIZE);
+        //PrintArray(int_array, ARRAY_SIZE);
+        int64_t sum_result = SumElementsOfArray(int_array, ARRAY_SIZE);
+        //printf("Результат: %ld \n", sum_result);
+        free(int_array);
+        clock_gettime(CLOCK_REALTIME, &end);
+        exec_time += (double)(end.tv_sec - begin.tv_sec) + (double)(end.tv_nsec - begin.tv_nsec)/1e9;
     }
 
-    mean_time_sequential = mean_time_sequential / runs;
-    mean_time_2_threads = mean_time_2_threads / runs;
-    mean_time_4_threads = mean_time_4_threads / runs;
-    mean_time_8_threads = mean_time_8_threads / runs;
+    mean_exec_time = exec_time / RUNS;
+    printf("Среднее время выполнения: %f сек.", mean_exec_time);
 
-    printf("Среднее время выполнения (%d выполнений):\nПоследовательно:%f\nПараллельно 2 потока:%f\nПараллельно 4 потока:%f\nПараллельно 8 потоков:%f\n",
-            runs, mean_time_sequential, mean_time_2_threads, mean_time_4_threads, mean_time_8_threads);
-    
+    return 0;
 }
