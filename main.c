@@ -115,6 +115,7 @@ int main(int argc, char** argv) {
         MPI_Comm_size(MPI_COMM_WORLD, &size_of_cluster);
         MPI_Comm_rank(MPI_COMM_WORLD, &process_rank);
         printf("Процесс с рангом %d заработал \n", process_rank);
+        MPI_Barrier(MPI_COMM_WORLD); // Для синхронизации
     }
 
     // Чтобы эту инфу писал только главный процесс
@@ -140,6 +141,7 @@ int main(int argc, char** argv) {
         // Распределение массива
         if (parallel_mode) {
             buffer_array = CreateArray(ARRAY_SIZE/CORES);
+            MPI_Barrier(MPI_COMM_WORLD); // Для синхронизации
             MPI_Scatter(int_array, 
                         ARRAY_SIZE/CORES, 
                         MPI_INT,
@@ -156,13 +158,15 @@ int main(int argc, char** argv) {
         // Вычисление суммы
         if (parallel_mode) {
             // Cумма в параллельном режиме
-            sum_result = SumElementsOfArray(buffer_array, ARRAY_SIZE);
+            sum_result = SumElementsOfArray(buffer_array, ARRAY_SIZE/CORES);
+            //printf("Сумма процесса %d: %ld \n", process_rank, sum_result);
 
             int64_t *all_sums = NULL; // Для сбора сумм со всех процессов
             if (process_rank == 0) {
                 all_sums = malloc(sizeof(int64_t) * CORES);
             }
-            // Сбор всех сумм
+            MPI_Barrier(MPI_COMM_WORLD); // Для синхронизации
+            // Сбор всех сумм в процессе 0
             MPI_Gather(&sum_result,
                         1,
                         MPI_INT64_T,
@@ -183,14 +187,20 @@ int main(int argc, char** argv) {
         }
         //printf("Результат: %ld \n", sum_result);
         
+        // Очистка памяти и вывод результатов
         if (parallel_mode) {
             free(buffer_array);
         }
         if (process_rank == 0) {
+            //int64_t test_result = SumElementsOfArray(int_array, ARRAY_SIZE);
             free(int_array);
-            if (final_sum == 0) {
-                final_sum = sum_result;
-            }
+            
+            // if (final_sum == 0) {
+            //     final_sum = sum_result;
+            // }
+            // printf("Финальная сумма прохода %d : %ld (послед. результат: %ld) \n",
+            //         i+1, final_sum, test_result
+            // );
             //printf("Финальная сумма прохода %d : %ld \n", i+1, final_sum);
         }
 
@@ -198,10 +208,9 @@ int main(int argc, char** argv) {
         exec_time += (double)(end.tv_sec - begin.tv_sec) + (double)(end.tv_nsec - begin.tv_nsec)/1e9;
     }
 
-    
     if (process_rank == 0) {
         double mean_exec_time = exec_time / RUNS;
-        printf("Общее время выполнения: %f \n", exec_time);
+        printf("Общее время выполнения: %f сек. \n", exec_time);
         printf("Среднее время выполнения: %f сек.", mean_exec_time);
     }
 
