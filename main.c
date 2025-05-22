@@ -66,21 +66,25 @@ int GetEnvRuns() {
     return runs_int;
 }
 
-int64_t SumElementsOfArray(const int* array, const int SIZE,
-                            const bool PARALLEL_MDOE) {
-    if (!PARALLEL_MDOE) {
-        int64_t result = 0;
-        for (int i = 0; i < SIZE; i++) {
-            result += array[0];
-        }
-        return result;
+int64_t SumElementsOfArray(const int* array, const int SIZE) {
+    int64_t result = 0;
+    for (int i = 0; i < SIZE; i++) {
+        result += array[0];
     }
+    return result;
+}
 
-
+int64_t SumElementsOfArrayINT64(const int64_t* array, const int SIZE) {
+    int64_t result = 0;
+    for (int i = 0; i < SIZE; i++) {
+        result += array[0];
+    }
+    return result;
 }
 
 int main(int argc, char** argv) {
-    srand(time(NULL));
+    srand(time(0));
+    //srand(1);
     const int ARRAY_SIZE = GetEnvArraySize();
     const int RUNS = GetEnvRuns();
     const int CORES = GetEnvCores();
@@ -96,35 +100,113 @@ int main(int argc, char** argv) {
                 "режиме (используемых ядер = 1)\n"
         );
     }
-
-    printf("Размер массива: %d \n", ARRAY_SIZE);
-    printf("Повторений: %d \n", RUNS);
-    printf("Используемые ядра: %d \n", CORES);
     
     // Таймер
     struct timespec begin, end;
     double exec_time = 0.0;
-    double mean_exec_time = 0.0;
 
+    // Информация о процессе
+    int process_rank = 0;
+    int size_of_cluster = 1;
+
+    // Инициализация MPI
     if (parallel_mode) {
         MPI_Init(&argc, &argv);
-        MPI_Finalize();
+        MPI_Comm_size(MPI_COMM_WORLD, &size_of_cluster);
+        MPI_Comm_rank(MPI_COMM_WORLD, &process_rank);
+        printf("Процесс с рангом %d заработал \n", process_rank);
     }
 
-    printf("Рассчёты начаты...\n");
+    // Чтобы эту инфу писал только главный процесс
+    if (process_rank == 0) {
+        printf("Размер массива: %d \n", ARRAY_SIZE);
+        printf("Повторений: %d \n", RUNS);
+        printf("Используемые ядра (кол-во процессов): %d \n", CORES);
+        printf("Количество процессов: %d \n", size_of_cluster);
+        printf("Рассчёты начаты...\n");
+    }
+
+    // Цикл выполнения задачи и подсчёта времени её выполнения
     for (int i = 0; i < RUNS; i++) {
         clock_gettime(CLOCK_REALTIME, &begin);
-        int* int_array = CreateArray(ARRAY_SIZE);
+
+        int* int_array = NULL; // Заполнится и используется только главным процессом
+        if (process_rank == 0) {
+            int_array = CreateArray(ARRAY_SIZE);
+        }
         //PrintArray(int_array, ARRAY_SIZE);
-        int64_t sum_result = SumElementsOfArray(int_array, ARRAY_SIZE, parallel_mode);
+        
+        int* buffer_array = NULL; // Заполнится в параллельном режиме
+        // Распределение массива
+        if (parallel_mode) {
+            buffer_array = CreateArray(ARRAY_SIZE/CORES);
+            MPI_Scatter(int_array, 
+                        ARRAY_SIZE/CORES, 
+                        MPI_INT,
+                        buffer_array,
+                        ARRAY_SIZE/CORES, 
+                        MPI_INT,
+                        0, 
+                        MPI_COMM_WORLD
+            );
+        }
+        
+        int64_t sum_result = 0;
+        int64_t final_sum = 0;
+        // Вычисление суммы
+        if (parallel_mode) {
+            // Cумма в параллельном режиме
+            sum_result = SumElementsOfArray(buffer_array, ARRAY_SIZE);
+
+            int64_t *all_sums = NULL; // Для сбора сумм со всех процессов
+            if (process_rank == 0) {
+                all_sums = malloc(sizeof(int64_t) * CORES);
+            }
+            // Сбор всех сумм
+            MPI_Gather(&sum_result,
+                        1,
+                        MPI_INT64_T,
+                        all_sums,
+                        1,
+                        MPI_INT64_T,
+                        0,
+                        MPI_COMM_WORLD
+            );
+            // Рассчёт финальной суммы
+            if (process_rank == 0) {
+                final_sum = SumElementsOfArrayINT64(all_sums, CORES);
+                free(all_sums);
+            }
+        } else {
+            // Сумма в последовательном режиме
+            sum_result = SumElementsOfArray(int_array, ARRAY_SIZE);
+        }
         //printf("Результат: %ld \n", sum_result);
-        free(int_array);
+        
+        if (parallel_mode) {
+            free(buffer_array);
+        }
+        if (process_rank == 0) {
+            free(int_array);
+            if (final_sum == 0) {
+                final_sum = sum_result;
+            }
+            //printf("Финальная сумма прохода %d : %ld \n", i+1, final_sum);
+        }
+
         clock_gettime(CLOCK_REALTIME, &end);
         exec_time += (double)(end.tv_sec - begin.tv_sec) + (double)(end.tv_nsec - begin.tv_nsec)/1e9;
     }
 
-    mean_exec_time = exec_time / RUNS;
-    printf("Среднее время выполнения: %f сек.", mean_exec_time);
+    
+    if (process_rank == 0) {
+        double mean_exec_time = exec_time / RUNS;
+        printf("Общее время выполнения: %f \n", exec_time);
+        printf("Среднее время выполнения: %f сек.", mean_exec_time);
+    }
 
+    if (parallel_mode) {
+        MPI_Finalize();
+    }
     return 0;
 }

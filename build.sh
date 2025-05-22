@@ -1,5 +1,4 @@
 #!/bin/bash
 #module load openmpi
 
-./build.sh
-./launch.sh
+mpicc main.c -o main
