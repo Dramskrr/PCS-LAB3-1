@@ -3,6 +3,6 @@
 
 export ARRAY_SIZE=100000000
 export RUNS=10
-export CORES=4
+export HW_THREADS=2
 
-time mpirun -np $CORES ./main
+time mpirun --use-hwthread-cpus -np $HW_THREADS ./main

@@ -1,3 +1,5 @@
+#include <limits.h>
+#include <stdint.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,7 +10,7 @@
 
 const int DEFAULT_ARRAY_SIZE = 1000000;
 const int DEFAULT_RUNS = 100;
-const int DEFAULT_CORES = 1;
+const int DEFAULT_HW_THREADS = 1;
 
 int* CreateArray(const int SIZE) {
     int* int_array = (int*) malloc(sizeof(int) * SIZE);
@@ -38,18 +40,18 @@ int GetEnvArraySize() {
     return array_size_int;
 }
 
-int GetEnvCores() {
-    char* cores_char = getenv("CORES");
-    int cores_int = DEFAULT_CORES;
-    if (cores_char != NULL) {
-        cores_int = atoi(cores_char);
+int GetEnvHwThreads() {
+    char* hw_thread_char = getenv("HW_THREADS");
+    int hw_thread_int = DEFAULT_HW_THREADS;
+    if (hw_thread_char != NULL) {
+        hw_thread_int = atoi(hw_thread_char);
     } else {
         printf(
-            "Переменная среды CORES не получена, "
-            "используем значение по умолчанию: %d \n", DEFAULT_CORES
+            "Переменная среды HW_THREADS не получена, "
+            "используем значение по умолчанию: %d \n", DEFAULT_HW_THREADS
         );
     }
-    return cores_int;
+    return hw_thread_int;
 }
 
 int GetEnvRuns() {
@@ -79,6 +81,7 @@ int64_t SumElementsOfArrayINT64(const int64_t* array, const int SIZE) {
     for (int i = 0; i < SIZE; i++) {
         result += array[0];
     }
+    
     return result;
 }
 
@@ -87,17 +90,17 @@ int main(int argc, char** argv) {
     //srand(1);
     const int ARRAY_SIZE = GetEnvArraySize();
     const int RUNS = GetEnvRuns();
-    const int CORES = GetEnvCores();
+    const int HW_THREADS = GetEnvHwThreads();
     bool parallel_mode = false; 
 
-    if (CORES > 1) {
+    if (HW_THREADS > 1) {
         parallel_mode = true;
         printf("Программа отработает в параллельном "
-                "режиме (используемых ядер > 1)\n"
+                "режиме (используемых аппаратных потоков > 1)\n"
         );
     } else {
         printf("Программа отработает в последовательном "
-                "режиме (используемых ядер = 1)\n"
+                "режиме (используемых аппаратных потоков = 1)\n"
         );
     }
     
@@ -122,31 +125,37 @@ int main(int argc, char** argv) {
     if (process_rank == 0) {
         printf("Размер массива: %d \n", ARRAY_SIZE);
         printf("Повторений: %d \n", RUNS);
-        printf("Используемые ядра (кол-во процессов): %d \n", CORES);
+        printf("Используемые аппаратные потоки: %d \n", HW_THREADS);
         printf("Количество процессов: %d \n", size_of_cluster);
         printf("Рассчёты начаты...\n");
     }
 
+    int* int_array = NULL; // Заполнится и используется только главным процессом
+    if (process_rank == 0) {
+        int_array = CreateArray(ARRAY_SIZE);
+    }
+
     // Цикл выполнения задачи и подсчёта времени её выполнения
     for (int i = 0; i < RUNS; i++) {
-        clock_gettime(CLOCK_REALTIME, &begin);
 
-        int* int_array = NULL; // Заполнится и используется только главным процессом
-        if (process_rank == 0) {
-            int_array = CreateArray(ARRAY_SIZE);
-        }
+        // int* int_array = NULL; // Заполнится и используется только главным процессом
+        // if (process_rank == 0) {
+        //     int_array = CreateArray(ARRAY_SIZE);
+        // }
         //PrintArray(int_array, ARRAY_SIZE);
         
+        clock_gettime(CLOCK_REALTIME, &begin); // Начало таймера
+
         int* buffer_array = NULL; // Заполнится в параллельном режиме
         // Распределение массива
         if (parallel_mode) {
-            buffer_array = CreateArray(ARRAY_SIZE/CORES);
+            buffer_array = malloc(sizeof(int) * ARRAY_SIZE/HW_THREADS);
             MPI_Barrier(MPI_COMM_WORLD); // Для синхронизации
             MPI_Scatter(int_array, 
-                        ARRAY_SIZE/CORES, 
+                        ARRAY_SIZE/HW_THREADS, 
                         MPI_INT,
                         buffer_array,
-                        ARRAY_SIZE/CORES, 
+                        ARRAY_SIZE/HW_THREADS, 
                         MPI_INT,
                         0, 
                         MPI_COMM_WORLD
@@ -158,12 +167,12 @@ int main(int argc, char** argv) {
         // Вычисление суммы
         if (parallel_mode) {
             // Cумма в параллельном режиме
-            sum_result = SumElementsOfArray(buffer_array, ARRAY_SIZE/CORES);
+            sum_result = SumElementsOfArray(buffer_array, ARRAY_SIZE/HW_THREADS);
             //printf("Сумма процесса %d: %ld \n", process_rank, sum_result);
 
             int64_t *all_sums = NULL; // Для сбора сумм со всех процессов
             if (process_rank == 0) {
-                all_sums = malloc(sizeof(int64_t) * CORES);
+                all_sums = malloc(sizeof(int64_t) * HW_THREADS);
             }
             MPI_Barrier(MPI_COMM_WORLD); // Для синхронизации
             // Сбор всех сумм в процессе 0
@@ -178,7 +187,7 @@ int main(int argc, char** argv) {
             );
             // Рассчёт финальной суммы
             if (process_rank == 0) {
-                final_sum = SumElementsOfArrayINT64(all_sums, CORES);
+                final_sum = SumElementsOfArrayINT64(all_sums, HW_THREADS);
                 free(all_sums);
             }
         } else {
@@ -191,18 +200,18 @@ int main(int argc, char** argv) {
         if (parallel_mode) {
             free(buffer_array);
         }
-        if (process_rank == 0) {
-            //int64_t test_result = SumElementsOfArray(int_array, ARRAY_SIZE);
-            free(int_array);
-            
-            // if (final_sum == 0) {
-            //     final_sum = sum_result;
-            // }
-            // printf("Финальная сумма прохода %d : %ld (послед. результат: %ld) \n",
-            //         i+1, final_sum, test_result
-            // );
-            //printf("Финальная сумма прохода %d : %ld \n", i+1, final_sum);
-        }
+        // if (process_rank == 0) {
+        //     //int64_t test_result = SumElementsOfArray(int_array, ARRAY_SIZE);
+        //     free(int_array);
+
+        //     // if (final_sum == 0) {
+        //     //     final_sum = sum_result;
+        //     // }
+        //     // printf("Финальная сумма прохода %d : %ld (послед. результат: %ld) \n",
+        //     //         i+1, final_sum, test_result
+        //     // );
+        //     //printf("Финальная сумма прохода %d : %ld \n", i+1, final_sum);
+        // }
 
         clock_gettime(CLOCK_REALTIME, &end);
         exec_time += (double)(end.tv_sec - begin.tv_sec) + (double)(end.tv_nsec - begin.tv_nsec)/1e9;
