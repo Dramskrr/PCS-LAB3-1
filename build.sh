@@ -1,4 +1,4 @@
 #!/bin/bash
-#module load openmpi
 
+module load mpi/openmpi-x86_64
 mpicc main.c -o main

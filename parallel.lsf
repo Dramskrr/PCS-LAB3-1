@@ -1,0 +1,15 @@
+#!/bin/bash
+
+export ARRAY_SIZE=200000000
+export RUNS=10
+export HW_THREADS=4
+
+#BSUB -J LAB3-1          
+#BSUB -W 00:20             
+#BSUB -n $RUNS                       
+#BSUB -R "span[ptile=1]"  
+#BSUB -oo output.out          
+#BSUB -eo error.err 
+
+module load mpi/openmpi-x86_64
+mpirun --use-hwthread-cpus -np $HW_THREADS ./main
